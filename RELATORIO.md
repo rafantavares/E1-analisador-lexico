@@ -1,98 +1,107 @@
-# Relatório — Atividade 1: Analisador Léxico
+# Relatório - Atividade 1 (Analisador Léxico)
 
-## Nível 0 — Identificador e Branco (prontos, referência)
+Faltei na aula 4, então fiz esse relatório meio que "reconstruindo" o raciocínio a partir do que já vinha pronto no nível 0 (afd_id e afd_branco) e das dicas que o testar.py ia dando quando eu errava. Vou explicar autômato por autômato, o que cada estado tá guardando na cabeça, e onde eu mais apanhei.
 
-**afd_id** (2 estados: `i0`, `i1`)
-```
-        letra/_           letra/digito/_
-  ->(i0) --------> ((i1)) ----------------,
-                      ^_______________________|
-```
-- `i0`: nada lido ainda.
-- `i1` *(final)*: já leu ao menos um caractere válido; continua aceitando letras, dígitos ou `_`.
-
-**afd_branco** (2 estados: `b0`, `b1`) — mesmo desenho, trocando o alfabeto por espaço/tab/quebra de linha.
-
-## Nível 1 — Literal inteiro (2 estados: `n0`, `n1`)
+## Nível 0 (já vinha pronto, mas é o modelo pra tudo)
 
 ```
-        digito         digito
-  ->(n0) -------> ((n1)) ------,
-                      ^_________|
+         letra ou _         letra, digito ou _
+  -> ( i0 ) -----------> (( i1 ))  <-------,
+                              |_____________|
 ```
-- `n0`: início, nenhum dígito lido.
-- `n1` *(final)*: já leu um ou mais dígitos.
 
-Dois estados bastam: um para "ainda não vi dígito nenhum" e outro para "já vi pelo menos um e posso continuar vendo mais".
+i0 é "não vi nada ainda". i1 é "já vi o primeiro caractere válido e agora aceito qualquer coisa em cima disso". Usei essa mesma lógica de "estado inicial x estado que já satisfez o mínimo" em quase tudo depois.
 
-## Nível 2 — Atribuição e ponto-e-vírgula (2 estados cada)
+## Nível 1 - inteiro (2 estados)
 
 ```
-afd_atrib:  ->(a0) --'='--> ((a1))
-afd_pvirg:  ->(p0) --';'--> ((p1))
+        digito          digito
+  -> (n0) --------> (( n1 ))  <---,
+                          |________|
 ```
-- `a0`/`p0`: estado inicial.
-- `a1`/`p1` *(final)*: símbolo já reconhecido; sem self-loop, então `"=="` vira dois tokens `ATRIB` e não um só.
 
-## Nível 3 — Palavras reservadas de tipo
+n0 = nenhum dígito lido ainda. n1 (final) = já tenho pelo menos 1 dígito, e fico voltando pra n1 lendo mais dígitos. Esse foi tranquilo, praticamente copiei a estrutura do afd_id trocando letra por dígito.
 
-Não é autômato novo: `inteiro`, `real` e `logico` batem no `afd_id` normalmente (viram lexema `ID`), e o **dicionário `PALAVRAS`** reclassifica o lexema inteiro para `TIPO` depois do casamento. Por isso `inteirox` continua `ID` — a palavra tem que casar por completo, não como prefixo.
-
-## Nível 4 — Literal real (4 estados: `r0`, `r1`, `r2`, `r3`)
+## Nível 2 - `=` e `;` (2 estados cada)
 
 ```
-        digito      digito       ponto        digito       digito
-  ->(r0) -----> (r1) -----(loop)---> (r2) -----> ((r3)) -----(loop)
-                  |________________________________________________
+afd_atrib:   -> (a0) --- '=' ---> (( a1 ))
+afd_pvirg:   -> (p0) --- ';' ---> (( p1 ))
 ```
-- `r0`: início.
-- `r1`: já leu dígitos da parte inteira (**não é final** — sozinho, um número sem ponto deve virar `INTEIRO`, não `REAL`).
-- `r2`: acabou de ler o ponto (**não pode ser final** — é a armadilha do enunciado: se fosse final, `"12."` seria aceito como real).
-- `r3` *(final)*: já leu ao menos um dígito depois do ponto.
 
-Precisa de 4 estados porque há 4 "fases" distintas da palavra: antes do ponto, logo após o ponto (fase perigosa, não aceita), e depois de garantir um dígito pós-ponto.
+Só um cuidado aqui que quase passou batido: não pode ter seta de a1 voltando pra a1. Se colocar, "==" vira um token ATRIB só (tipo "=="), e o esperado é dois tokens ATRIB separados. Sem loop, resolve.
 
-## Nível 5 — Literais lógicos
+## Nível 3 - palavras de tipo (inteiro, real, logico)
 
-Mesmo mecanismo do nível 3: `verdadeiro` e `falso` também são reconhecidos pelo `afd_id` e depois reclassificados via `PALAVRAS` para a categoria `LOGICO`.
+Esse nível não pede autômato novo, e no começo eu fiquei procurando onde criar um afd_tipo achando que tinha esquecido de algo. Só que a palavra "inteiro" já bate certinho no afd_id (é só letra). O que acontece é que, depois do texto casar como ID, o mini_base.py olha se aquele lexema tá dentro do dicionário PALAVRAS, e se estiver, troca a categoria de ID pra TIPO. Então o trabalho aqui foi só preencher o dicionário:
 
-## Nível 6 — Comentário de linha (3 estados: `c0`, `c1`, `c2`)
+```python
+PALAVRAS = {
+    'inteiro': 'TIPO',
+    'real': 'TIPO',
+    'logico': 'TIPO',
+}
+```
+
+Isso também explica por que "inteirox" continua sendo ID: o dicionário só bate na palavra inteira, "inteirox" não está lá.
+
+## Nível 4 - real (4 estados) - o que mais me quebrou a cabeça
 
 ```
-        '/'        '/'         qualquer, exceto '\n'
-  ->(c0) ----> (c1) ----> ((c2)) ------------(loop)
+        digito     digito      ponto        digito       digito
+  -> (r0) -----> (r1) ---'.'---> (r2) -----> (( r3 )) <----,
+                   ^_____|                        |________|
 ```
-- `c0`: início.
-- `c1`: leu uma barra só (**não é final** — uma barra sozinha deve dar erro léxico, divisão é assunto de outra atividade).
-- `c2` *(final)*: já leu `//`; continua consumindo qualquer caractere que não seja quebra de linha, que é justamente onde o comentário para (não faz parte dele).
 
-## Nível 7 — Integração
+r0 = início. r1 = já li dígito(s) da parte inteira. r2 = acabei de ler o ponto. r3 (final) = já tenho pelo menos um dígito depois do ponto.
 
-Nenhum autômato novo: é só a combinação de todos os anteriores sobre um arquivo com várias declarações.
+Na minha primeira tentativa eu botei r2 como final também, porque pensei "ele já leu dígito + ponto, então já é um número válido". Rodei o testar.py e ele acusou que "12." tava passando como REAL, quando devia dar erro. Foi aí que caiu a ficha: o enunciado já avisava dessa pegadinha e mesmo assim caí nela. O certo é só r3 ser final, porque um real de verdade PRECISA ter pelo menos um dígito depois do ponto - "12." para bem no meio do caminho e não pode contar.
 
----
+Outro detalhe que só percebi depois: r1 também não pode ser final. Se fosse, "42" (sem ponto nenhum) bateria tanto em REAL quanto em INTEIRO com o mesmo tamanho, e como REAL vem antes de INTEIRO na lista REGRAS, o "42" ia virar REAL errado no desempate. Então precisa mesmo dos 4 estados separados, cada um representando uma fase que aceita coisas diferentes.
 
-## Quantos estados, resumo
+## Nível 5 - verdadeiro / falso
 
-| Autômato | Estados | Por quê |
-|---|---|---|
-| `afd_id` / `afd_branco` | 2 | prontos (referência) |
-| `afd_inteiro` | 2 | "nada ainda" vs "já vi ≥1 dígito" |
-| `afd_atrib` / `afd_pvirg` | 2 cada | símbolo único, sem loop |
-| `afd_real` | 4 | parte inteira / ponto (não-final) / parte decimal |
-| `afd_comentario` | 3 | primeira barra / segunda barra (final) / corpo |
+Mesma ideia do nível 3, só que mapeando pra LOGICO:
 
-Não usei estados a mais: cada autômato tem exatamente um estado por "fase" que muda o comportamento de aceitação. Reduzir qualquer um deles junta fases que precisam de status de aceitação diferente (por exemplo, juntar `r1` e `r3` faria `"12"` virar `REAL`; juntar `c1` e `c2` faria uma barra sozinha ser aceita).
+```python
+'verdadeiro': 'LOGICO',
+'falso': 'LOGICO',
+```
 
-## O nível que deu mais trabalho
+Rápido depois de já ter entendido o nível 3.
 
-O **nível 4 (real)** foi o mais traiçoeiro. Na primeira tentativa marquei `r2` (o estado logo depois do ponto) como final, seguindo o mesmo padrão "raso" que usei nos outros autômatos — resultado: `testar.py` acusava que `"12."` estava sendo aceito como `REAL`, quebrando exatamente o caso de teste `ERRO_ESPERADO`. A correção foi perceber que "aceitar o ponto" e "aceitar o número" são coisas diferentes: só depois de ver pelo menos um dígito *após* o ponto (estado `r3`) é que a palavra vira um real válido. Isso também exigiu cuidado para `r1` não ser final, senão `"42"` empataria em tamanho entre `REAL` e `INTEIRO`, e como `REAL` vem primeiro em `REGRAS`, o desempate por ordem faria `"42"` virar `REAL` incorretamente.
+## Nível 6 - comentário (3 estados)
+
+```
+        '/'        '/'        qualquer coisa menos \n
+  -> (c0) ----> (c1) ----> (( c2 ))  <-----,
+                                |___________|
+```
+
+c0 = nada ainda. c1 = já li uma barra (não é final - uma barra sozinha tem que dar erro, já que divisão fica pra outra atividade). c2 (final) = já li as duas barras, e a partir daí continuo engolindo qualquer caractere, menos quebra de linha, porque o comentário morre no fim da linha e o \n não faz parte dele. Usei o SIGMA - {'\n'} que tava sugerido no comentário do arquivo.
+
+## Nível 7
+
+Não precisou mexer em nada, é só juntar tudo e testar num arquivo com várias linhas de declaração.
+
+## Quantos estados usei, e por quê
+
+- afd_inteiro: 2 (sem dígito / com dígito)
+- afd_atrib, afd_pvirg: 2 cada (não visto / visto, sem loop)
+- afd_real: 4 (antes do ponto, depois do ponto sem dígito ainda, depois do ponto com dígito)
+- afd_comentario: 3 (nada, uma barra, duas barras)
+
+Não dá pra usar menos que isso em nenhum dos casos, porque cada estado a menos juntaria duas fases que precisam se comportar diferente na hora de aceitar ou não (o nível 4 é o exemplo mais claro disso).
+
+## Nível que mais deu trabalho
+
+Sem dúvida o nível 4. Não foi a lógica de "dígito ponto dígito" que travou, foi a parte de decidir QUAL estado marcar como final. Minha primeira versão tava semanticamente errada (r2 final) mesmo eu achando que tava certa, e só o testar.py rodando o caso "12." me mostrou o erro na prática.
 
 ## Como rodar
 
 ```
-python testar.py                  # roda os 8 níveis
-python lexico.py niveis/n7.mini   # roda o analisador em um arquivo completo
+python testar.py
+python lexico.py niveis/n7.mini
 ```
 
-Todos os 8 níveis passam (`38/38` casos de teste).
+Os 8 níveis passam, 38/38 casos.
